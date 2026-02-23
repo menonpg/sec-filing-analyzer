@@ -79,6 +79,22 @@ Currently this requires manual EDGAR navigation, copy-pasting into spreadsheets,
 | **Deployment** | Railway | Container hosting |
 | **Data Source** | SEC EDGAR API | Free, official SEC data |
 
+## 📚 Blog Tools Integration
+
+This project implements patterns and tools from [The Menon Lab Blog](https://blog.themenonlab.com):
+
+| Tool/Pattern | Blog Post | Use Here |
+|--------------|-----------|----------|
+| **PageIndex** | [PageIndex vs Vector DBs](/blog/pageindex-vs-vector-databases-rag-showdown) | 98.7% accuracy on SEC filings! Hierarchical reasoning for structured docs. |
+| **RAG API** | [Smart Parser Selection](/blog/rag-api-knowledge-graph-smart-parsing) | Auto-select parser based on document complexity |
+| **Paper-QA** | [Superhuman RAG](/blog/paper-qa-scientific-literature-rag) | Cross-document comparison, contradiction detection |
+| **CrawlAI RAG** | [Website Knowledge Base](/blog/crawlai-rag-website-knowledge-base) | FastAPI + LangChain + vector store pattern |
+| **DeepDoc** | [Local Knowledge Base](/blog/deepdoc-local-knowledge-base-research) | Multi-agent research with reflection loops |
+| **Retrieve & Rerank** | [7 RAG Patterns](/blog/7-rag-patterns-2026) | Cohere/Jina reranker for precision |
+| **edgartools** | External | AI-native SEC Python library |
+
+See [DESIGN.md](./DESIGN.md#11-blog-tools-integration) for detailed integration plan.
+
 ## 📡 SEC EDGAR API Reference
 
 The SEC provides free, unauthenticated access to all filings.

@@ -475,6 +475,147 @@ POST /tools/fetch_filing
 
 ---
 
+---
+
+## 11. Blog Tools Integration
+
+We've written about numerous RAG and document processing tools. Here's how they map to this project:
+
+### 11.1 Document Processing & Parsing
+
+| Tool | Blog Post | Use in This Project |
+|------|-----------|---------------------|
+| **RAG API** | `rag-api-knowledge-graph-smart-parsing.md` | Smart parser selection based on document complexity. Route simple 10-Qs to fast parser, complex investment schedules to heavy parser. |
+| **DeepDoc** | `deepdoc-local-knowledge-base-research.md` | Multi-agent research workflow with reflection loops. Use for generating structured reports from multiple filings. |
+| **edgartools** | (External) | AI-native SEC library with built-in XBRL parsing. Primary tool for SEC API access. |
+
+**Integration Plan:**
+```python
+# Parser selection based on document complexity
+if has_complex_tables(filing):
+    parser = "RAG-API-MinerU"  # Heavy multimodal parser
+elif has_xbrl(filing):
+    parser = "edgartools"      # Native XBRL parsing
+else:
+    parser = "fast-html"       # BeautifulSoup quick parse
+```
+
+### 11.2 Retrieval Strategies
+
+| Tool/Pattern | Blog Post | Use in This Project |
+|--------------|-----------|---------------------|
+| **PageIndex** | `pageindex-vs-vector-databases-rag-showdown.md` | 🔥 **98.7% accuracy on FinanceBench (SEC filings)**. Hierarchical reasoning instead of vector similarity. |
+| **Retrieve & Rerank** | `7-rag-patterns-2026.md` | Cohere/Jina reranker after initial retrieval. |
+| **Graph RAG** | `7-rag-patterns-2026.md` | For relationship queries ("which companies have loans from X?") |
+| **Paper-QA** | `paper-qa-scientific-literature-rag.md` | Structure-aware retrieval, cross-document comparison, contradiction detection. |
+
+**Critical Insight: PageIndex for SEC Filings**
+
+From our blog: *"PageIndex hits 98.7% on FinanceBench vs 50-65% for traditional vector RAG."*
+
+Why? SEC filings are:
+- Hierarchical (Part I → Item 1 → Section)
+- Reference-heavy ("see Appendix G")
+- Table-dense (investment schedules)
+
+Vector similarity fails on these. PageIndex's reasoning-based navigation is purpose-built for exactly this.
+
+**Recommended Hybrid Approach:**
+```
+Query
+  │
+  ├─→ PageIndex (hierarchical navigation for structured queries)
+  │     "What's the fair value of Level 3 assets?"
+  │
+  └─→ Vector RAG + Rerank (semantic search for open-ended)
+        "Summarize the risk factors"
+```
+
+### 11.3 Crawling & Indexing
+
+| Tool | Blog Post | Use in This Project |
+|------|-----------|---------------------|
+| **CrawlAI RAG** | `crawlai-rag-website-knowledge-base.md` | FastAPI + LangChain + ChromaDB stack. Could adapt for SEC filing URLs. |
+| **Firecrawl** | (Referenced) | Clean web scraping for LLM-ready content. |
+
+**SEC-Specific Adaptation:**
+```python
+# Instead of crawling arbitrary websites, crawl SEC EDGAR
+class SECCrawler:
+    def crawl_company(self, cik: str, form_types: list):
+        """Crawl all filings for a company."""
+        submissions = get_submissions(cik)
+        for filing in filter_by_type(submissions, form_types):
+            html = fetch_filing_html(filing)
+            chunks = parse_and_chunk(html)
+            index_to_qdrant(chunks, metadata=filing)
+```
+
+### 11.4 Vector Storage
+
+| Tool | Blog Post | Use in This Project |
+|------|-----------|---------------------|
+| **Qdrant** | `rag-storage-decision-guide.md` | ✅ Already have cloud instance. Primary vector store. |
+| **Zvec** | `zvec-sqlite-of-vector-databases.md` | Embedded alternative for local dev/testing. |
+| **ChromaDB** | `crawlai-rag-website-knowledge-base.md` | Quick prototyping, LangChain native. |
+
+**Decision: Stick with Qdrant Cloud**
+- Already provisioned
+- Supports hybrid search (dense + sparse)
+- Good filtering for metadata (form_type, date, company)
+
+### 11.5 Complete Tool Stack
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                      SEC Filing Analyzer                        │
+├─────────────────────────────────────────────────────────────────┤
+│  ORCHESTRATION                                                  │
+│  └── Dify (workflows, LLMOps, API generation)                  │
+├─────────────────────────────────────────────────────────────────┤
+│  DATA FETCHING                                                  │
+│  ├── SEC EDGAR API (free, official)                            │
+│  └── edgartools (Python library for SEC data)                  │
+├─────────────────────────────────────────────────────────────────┤
+│  PARSING (smart selection per document)                         │
+│  ├── edgartools XBRL parser (structured financial data)        │
+│  ├── RAG-API MinerU (complex tables, charts)                   │
+│  └── BeautifulSoup (simple HTML)                               │
+├─────────────────────────────────────────────────────────────────┤
+│  RETRIEVAL (hybrid)                                             │
+│  ├── PageIndex-style (hierarchical reasoning for SEC)          │
+│  ├── Qdrant vector search (semantic similarity)                │
+│  └── Cohere Rerank (precision boost)                           │
+├─────────────────────────────────────────────────────────────────┤
+│  ANALYSIS                                                       │
+│  ├── Paper-QA patterns (cross-document, contradictions)        │
+│  └── DeepDoc workflow (multi-agent reports)                    │
+├─────────────────────────────────────────────────────────────────┤
+│  LLM                                                            │
+│  └── Azure OpenAI GPT-4 / Claude                               │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### 11.6 Implementation Priority
+
+**Phase 1 (MVP):**
+- edgartools for SEC data
+- BeautifulSoup HTML parsing
+- Qdrant vector search
+- Basic Dify workflow
+
+**Phase 2 (Accuracy Boost):**
+- Add Cohere Rerank
+- Implement PageIndex-style navigation for investment tables
+- Paper-QA cross-filing comparison
+
+**Phase 3 (Advanced):**
+- RAG-API smart parser selection
+- Graph RAG for relationship queries
+- DeepDoc multi-agent reports
+
+---
+
 ## References
 
 - [SEC EDGAR API Documentation](https://www.sec.gov/search-filings/edgar-application-programming-interfaces)
@@ -482,3 +623,13 @@ POST /tools/fetch_filing
 - [Qdrant Documentation](https://qdrant.tech/documentation/)
 - [edgartools Python Library](https://github.com/dgunning/edgartools)
 - [XBRL US GAAP Taxonomy](https://xbrl.us/home/filers/sec-reporting/)
+
+### Our Blog References
+- [RAG API: Smart Parser Selection](/blog/rag-api-knowledge-graph-smart-parsing)
+- [PageIndex vs Vector Databases](/blog/pageindex-vs-vector-databases-rag-showdown)
+- [7 RAG Patterns for 2026](/blog/7-rag-patterns-2026)
+- [Paper-QA: Superhuman RAG](/blog/paper-qa-scientific-literature-rag)
+- [DeepDoc: Local Knowledge Base Research](/blog/deepdoc-local-knowledge-base-research)
+- [CrawlAI RAG](/blog/crawlai-rag-website-knowledge-base)
+- [Zvec: SQLite of Vector DBs](/blog/zvec-sqlite-of-vector-databases)
+- [RAG Storage Decision Guide](/blog/rag-storage-decision-guide)
