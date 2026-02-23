@@ -136,6 +136,11 @@ async def openapi_tools():
     """
     Returns OpenAPI schema formatted for Dify custom tools import.
     """
+    import os
+    base_url = os.environ.get("RAILWAY_PUBLIC_DOMAIN", "sec-filing-analyzer-production.up.railway.app")
+    if not base_url.startswith("http"):
+        base_url = f"https://{base_url}"
+    
     return {
         "openapi": "3.0.0",
         "info": {
@@ -143,7 +148,7 @@ async def openapi_tools():
             "version": "1.0.0"
         },
         "servers": [
-            {"url": "https://your-railway-url.railway.app"}  # Update after deploy
+            {"url": base_url}
         ],
         "paths": {
             "/tools/search_company": {
