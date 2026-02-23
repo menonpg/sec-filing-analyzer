@@ -1,305 +1,297 @@
 # SEC Filing Analyzer
 
-An agentic RAG system for analyzing SEC filings — built for financial analysts who need to track investment portfolios, compare quarterly changes, and extract insights from 10-K/10-Q filings.
+A production-ready SEC EDGAR analysis API with **dual-mode architecture** — fast regex extraction for metrics, semantic RAG search for narrative content. Includes a smart router that auto-picks the best approach.
 
-## 🎯 Problem Statement
+**Live Demo:** [https://udify.app/chatbot/OCkEUGuuRXM3RNBt](https://udify.app/chatbot/OCkEUGuuRXM3RNBt)
 
-Financial analysts need to:
-- Look up companies by name or ticker (e.g., "BCRED" → Blue Owl Capital Corporation)
-- Fetch and parse SEC filings (10-K, 10-Q, 8-K)
-- Extract specific data (investment tables, PIK listings, fair value schedules)
-- Compare changes across quarters/years
-- Ask natural language questions about filings
+## 🎯 What It Does
 
-Currently this requires manual EDGAR navigation, copy-pasting into spreadsheets, and tedious comparison work.
+Ask natural language questions about any company's SEC filings:
+
+```
+"What was Apple's revenue in their latest 10-Q?"
+→ Regex mode: $143.76B (extracted in <1s)
+
+"What are the risk factors in Ingram Micro's filing?"
+→ RAG mode: Semantic search across indexed content
+
+"Compare Apple's last two quarters"
+→ Fetches both filings, extracts metrics, shows changes
+```
 
 ## 🏗️ Architecture
 
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│                        User Interface                           │
-│                    (Dify Chat / API Endpoint)                   │
-└─────────────────────────────────────────────────────────────────┘
-                                │
-                                ▼
-┌─────────────────────────────────────────────────────────────────┐
-│                      Dify Orchestration                         │
-│  ┌─────────────┐  ┌─────────────┐  ┌─────────────────────────┐ │
-│  │   Agent     │  │  Workflow   │  │       LLMOps            │ │
-│  │  (ReAct)    │  │   Canvas    │  │  (Logs, Monitoring)     │ │
-│  └─────────────┘  └─────────────┘  └─────────────────────────┘ │
-└─────────────────────────────────────────────────────────────────┘
-                                │
-                ┌───────────────┼───────────────┐
-                ▼               ▼               ▼
-        ┌──────────────┐ ┌──────────────┐ ┌──────────────┐
-        │  SEC EDGAR   │ │   Document   │ │    RAG       │
-        │    Tools     │ │   Parser     │ │  Retrieval   │
-        └──────────────┘ └──────────────┘ └──────────────┘
-                │               │               │
-                ▼               ▼               ▼
-        ┌──────────────┐ ┌──────────────┐ ┌──────────────┐
-        │  SEC EDGAR   │ │  HTML/XBRL   │ │   Qdrant     │
-        │     API      │ │   Content    │ │    Cloud     │
-        │    (Free)    │ │              │ │              │
-        └──────────────┘ └──────────────┘ └──────────────┘
+┌─────────────────────────────────────────────────────────────┐
+│  POST /tools/analyze   ← Smart Router (use this!)          │
+│  { "query": "...", "company": "Apple" }                     │
+└─────────────────────────────────────────────────────────────┘
+                          │
+                    classify_query()
+                          │
+         ┌────────────────┴────────────────┐
+         │                                 │
+    METRIC keywords               NARRATIVE keywords
+    revenue, eps, margin          risk, compare, guidance
+         │                                 │
+         ▼                                 ▼
+   fetchFiling                      is_indexed()?
+   (summary_only=true)              │         │
+         │                         No        Yes
+         │                          │         │
+         │                    index_filing    │
+         │                          │         │
+         │                          └────┬────┘
+         │                               │
+         │                        semantic_search
+         │                     (scoped by accession)
+         ▼                               ▼
+   { key_metrics: {...} }      { relevant_context: [...] }
 ```
 
-## 📋 Features
+### Why Dual Mode?
 
-### Phase 1: Core Functionality
-- [ ] Company search (name/ticker → CIK lookup)
-- [ ] Filing list retrieval (10-K, 10-Q, 8-K by date range)
-- [ ] Document fetching and parsing
-- [ ] Basic RAG Q&A over filings
-- [ ] Dify deployment on Railway
+| Mode | Best For | Speed | Needs Indexing? |
+|------|----------|-------|-----------------|
+| **Regex** | Structured data (revenue, EPS, margins) | Fast (<1s) | No |
+| **RAG** | Narrative content (risks, MD&A, guidance) | 2-5s | Yes (auto) |
 
-### Phase 2: Advanced Analysis
-- [ ] Investment table extraction (Schedule of Investments)
-- [ ] Quarter-over-quarter comparison
-- [ ] PIK (Payment in Kind) tracking
-- [ ] Fair value hierarchy analysis (Level 1/2/3)
-- [ ] Pre-built analysis templates
+The smart router analyzes your query and picks the right mode automatically.
 
-### Phase 3: Production Features
-- [ ] Multi-company comparison
-- [ ] Automated alerts on new filings
-- [ ] Export to Excel/PDF
-- [ ] User authentication
-- [ ] Usage analytics
+## 🔧 API Endpoints
 
-## 🔧 Tech Stack
+### Smart Router (Recommended)
 
-| Component | Technology | Purpose |
-|-----------|------------|---------|
-| **Orchestration** | Dify | Visual workflows, agent logic, LLMOps |
-| **Vector Store** | Qdrant Cloud | Document embeddings, semantic search |
-| **LLM** | Azure OpenAI (GPT-4) | Analysis, Q&A, extraction |
-| **Embeddings** | Azure OpenAI | text-embedding-ada-002 |
-| **Deployment** | Railway | Container hosting |
-| **Data Source** | SEC EDGAR API | Free, official SEC data |
-
-## 📚 Blog Tools Integration
-
-This project implements patterns and tools from [The Menon Lab Blog](https://blog.themenonlab.com):
-
-| Tool/Pattern | Blog Post | Use Here |
-|--------------|-----------|----------|
-| **PageIndex** | [PageIndex vs Vector DBs](/blog/pageindex-vs-vector-databases-rag-showdown) | 98.7% accuracy on SEC filings! Hierarchical reasoning for structured docs. |
-| **RAG API** | [Smart Parser Selection](/blog/rag-api-knowledge-graph-smart-parsing) | Auto-select parser based on document complexity |
-| **Paper-QA** | [Superhuman RAG](/blog/paper-qa-scientific-literature-rag) | Cross-document comparison, contradiction detection |
-| **CrawlAI RAG** | [Website Knowledge Base](/blog/crawlai-rag-website-knowledge-base) | FastAPI + LangChain + vector store pattern |
-| **DeepDoc** | [Local Knowledge Base](/blog/deepdoc-local-knowledge-base-research) | Multi-agent research with reflection loops |
-| **Retrieve & Rerank** | [7 RAG Patterns](/blog/7-rag-patterns-2026) | Cohere/Jina reranker for precision |
-| **edgartools** | External | AI-native SEC Python library |
-
-See [DESIGN.md](./DESIGN.md#11-blog-tools-integration) for detailed integration plan.
-
-## 📡 SEC EDGAR API Reference
-
-The SEC provides free, unauthenticated access to all filings.
-
-### Key Endpoints
-
-**Company Search (by name):**
-```
-https://www.sec.gov/cgi-bin/browse-edgar?company={name}&type=10-K&output=atom
+```bash
+POST /tools/analyze
+{
+  "query": "What was the revenue?",
+  "company": "Apple",
+  "form_type": "10-Q"  # optional, defaults to 10-Q
+}
 ```
 
-**Company Filings (by CIK):**
-```
-https://data.sec.gov/submissions/CIK{cik_padded}.json
-```
-Returns: All filings, company info, SIC code, addresses
+Returns either `key_metrics` (regex) or `relevant_context` (RAG) based on query type.
 
-**Filing Documents:**
-```
-https://www.sec.gov/Archives/edgar/data/{cik}/{accession_number_no_dashes}/{filename}
-```
+### Individual Tools
 
-**Full-Text Search:**
-```
-https://efts.sec.gov/LATEST/search-index?q={query}&dateRange=custom&startdt={start}&enddt={end}
-```
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/tools/search_company` | POST | Find company by name/ticker → CIK |
+| `/tools/get_filings` | POST | List SEC filings for a company |
+| `/tools/fetch_filing` | POST | Parse filing, optionally `summary_only=true` |
+| `/tools/index_filing` | POST | Index filing into Qdrant for RAG |
+| `/tools/semantic_search` | POST | Search indexed filings by topic |
+| `/tools/compare_filings` | POST | Side-by-side comparison of two filings |
+| `/tools/indexed_filings` | GET | List all indexed filings |
+| `/tools/vector_stats` | GET | Qdrant collection stats |
+| `/health` | GET | Health check |
+| `/docs` | GET | Swagger UI |
+| `/openapi-tools.json` | GET | Dify-compatible schema |
 
-### Rate Limits
-- 10 requests per second
-- Must include User-Agent header with contact email
-- Example: `User-Agent: SEC-Filing-Analyzer contact@example.com`
+### Example: Quick Metrics (Regex Mode)
 
-### Filing Types We Care About
-
-| Form | Description | Frequency |
-|------|-------------|-----------|
-| 10-K | Annual report | Yearly |
-| 10-Q | Quarterly report | Q1, Q2, Q3 |
-| 8-K | Current report (material events) | As needed |
-| 13F | Institutional holdings | Quarterly |
-| N-CSR | Fund shareholder reports | Semi-annual |
-
-## 🛠️ Dify Custom Tools
-
-We'll create these custom tools in Dify:
-
-### 1. `search_company`
-**Input:** Company name or ticker
-**Output:** CIK, full name, SIC code, recent filings
-**Implementation:** SEC EDGAR company search API
-
-### 2. `get_filings`
-**Input:** CIK, form types, date range
-**Output:** List of filings with accession numbers, dates, descriptions
-**Implementation:** SEC submissions endpoint
-
-### 3. `fetch_filing`
-**Input:** CIK, accession number
-**Output:** Parsed filing content (indexed into Qdrant)
-**Implementation:** Fetch HTML/XBRL, parse, chunk, embed, store
-
-### 4. `query_filings`
-**Input:** Natural language question, optional company/date filters
-**Output:** Answer with citations to specific filings/pages
-**Implementation:** RAG retrieval from Qdrant + LLM synthesis
-
-### 5. `compare_periods`
-**Input:** Company, metric type, period 1, period 2
-**Output:** Structured comparison with changes highlighted
-**Implementation:** Retrieve both periods, structured extraction, diff
-
-## 📊 Pre-Built Analysis Templates
-
-### Investment Table Analysis (BDCs)
-```
-Extract the Schedule of Investments from {company}'s latest 10-Q.
-For each investment, identify:
-- Portfolio company name
-- Investment type (Senior Secured, Subordinated, Equity, etc.)
-- Interest rate and PIK component
-- Fair value
-- % of net assets
-
-Compare to previous quarter and highlight:
-- New investments
-- Exits
-- Fair value changes > 10%
-- PIK rate changes
+```bash
+curl -X POST https://sec-filing-analyzer-production.up.railway.app/tools/fetch_filing \
+  -H "Content-Type: application/json" \
+  -d '{
+    "cik": "320193",
+    "accession_number": "0000320193-26-000006",
+    "summary_only": true
+  }'
 ```
 
-### Fair Value Hierarchy
-```
-Extract Level 1, 2, and 3 asset classifications.
-Calculate % in each level.
-Compare to prior period.
-Flag any transfers between levels.
+Response:
+```json
+{
+  "key_metrics": {
+    "revenue": "Total net sales 143,756",
+    "net_income": "net income 237",
+    "gross_margin": "Gross margin 69",
+    "segments": {
+      "iPhone": "iPhone 85,268",
+      "Services": "Services 30,013"
+    },
+    "period": "December 27, 2025"
+  }
+}
 ```
 
-### Concentration Risk
+### Example: Semantic Search (RAG Mode)
+
+```bash
+# First, index the filing
+curl -X POST .../tools/index_filing \
+  -d '{"cik": "320193", "accession_number": "0000320193-26-000006"}'
+
+# Then search within it
+curl -X POST .../tools/semantic_search \
+  -d '{
+    "query": "supply chain risks",
+    "cik": "320193",
+    "accession_number": "0000320193-26-000006"
+  }'
 ```
-Identify top 10 investments by fair value.
-Calculate concentration in top 10.
-Compare to prior quarter.
-Flag any position > 5% of portfolio.
+
+## 📊 RAG: How Qdrant Indexing Works
+
+### Collection Structure
+
 ```
+Collection: sec_edgar_filings
+│
+├── Apple Q1'26 (accession: 320193-26-000006)
+│   ├── chunk_0: "Total net sales were $143.7 billion..."
+│   ├── chunk_1: "iPhone revenue increased 23%..."
+│   └── chunk_n: ...
+│
+├── Apple Q4'25 (accession: 320193-25-000089)
+│   └── [chunks...]
+│
+└── Ingram Micro Q3'25 (accession: 1628280-25-047537)
+    └── [chunks...]
+```
+
+### Scoping: Preventing Mixed Results
+
+Each search is **scoped by accession_number** to prevent mixing content from different filings:
+
+```python
+# BAD: Searches ALL Apple filings (mixed quarters)
+search(query="risks", cik="320193")
+
+# GOOD: Searches ONLY Q1'26 filing
+search(query="risks", cik="320193", accession_number="320193-26-000006")
+```
+
+The smart router automatically scopes to the specific filing being analyzed.
+
+### Deduplication
+
+Before indexing, we check if the filing is already in Qdrant:
+
+```python
+if not store.is_indexed(cik, accession_number):
+    await store.index_filing(...)  # Index it
+else:
+    pass  # Skip, already indexed
+```
+
+### Chunking Strategy
+
+- **Chunk size:** 1,500 characters
+- **Overlap:** 200 characters
+- Breaks at sentence boundaries when possible
+- Each chunk stores: `cik`, `accession_number`, `company_name`, `form_type`, `filing_date`, `section`, `text`
 
 ## 🚀 Deployment
 
-### Railway Setup
+### Railway (Recommended)
 
-```bash
-# Clone and deploy
-git clone https://github.com/yourusername/sec-filing-analyzer.git
-cd sec-filing-analyzer
+[![Deploy on Railway](https://railway.app/button.svg)](https://railway.app/template/...)
 
-# Deploy Dify via Docker Compose on Railway
-# (Railway template coming soon)
-```
-
-### Environment Variables
+**Environment Variables:**
 
 ```env
-# LLM
-AZURE_OPENAI_API_KEY=xxx
-AZURE_OPENAI_ENDPOINT=xxx
-AZURE_OPENAI_DEPLOYMENT=gpt-4
+# Qdrant Cloud
+QDRANT_URL=https://xxx.cloud.qdrant.io:6333
+QDRANT_API_KEY=your-key
 
-# Vector Store
-QDRANT_URL=xxx
-QDRANT_API_KEY=xxx
-
-# SEC API (no key needed, just identity)
-SEC_USER_AGENT=SEC-Filing-Analyzer contact@yourdomain.com
+# Azure OpenAI Embeddings
+AZURE_EMBEDDINGS_ENDPOINT=https://xxx.cognitiveservices.azure.com
+AZURE_EMBEDDINGS_KEY=your-key
+AZURE_EMBEDDINGS_DEPLOYMENT=text-embedding-3-large
 ```
+
+### Local Development
+
+```bash
+git clone https://github.com/menonpg/sec-filing-analyzer.git
+cd sec-filing-analyzer
+pip install -r requirements.txt
+cp .env.example .env  # Add your keys
+uvicorn tools_api:app --reload
+```
+
+### Docker
+
+```bash
+docker build -t sec-filing-analyzer .
+docker run -p 8000:8000 --env-file .env sec-filing-analyzer
+```
+
+## 🔌 Dify Integration
+
+Import tools into Dify from:
+```
+https://sec-filing-analyzer-production.up.railway.app/openapi-tools.json
+```
+
+### Recommended Agent Instruction
+
+```
+Use the analyze tool for all SEC filing questions.
+Just pass the query and company name - it auto-picks the best method.
+
+For comparisons, call analyze twice (once per filing) or use compare_filings.
+```
+
+### Embed Widget
+
+```html
+<iframe 
+  src="https://udify.app/chatbot/OCkEUGuuRXM3RNBt" 
+  style="width: 100%; height: 700px" 
+  frameborder="0">
+</iframe>
+```
+
+## ✅ Verified Tests
+
+### Apple (Q1 FY2026)
+- Filed: January 30, 2026
+- Revenue: $143.76B (+16% YoY)
+- iPhone: $85.27B (+23%)
+- Services: $30.01B (+14%)
+
+### Ingram Micro (Q3 2025 vs Q2 2025)
+- Revenue: $11.73B → $11.95B (-1.8%)
+- Net Income: $0.30B → $0.79B (+163%)
 
 ## 📁 Project Structure
 
 ```
 sec-filing-analyzer/
-├── README.md                 # This file
-├── DESIGN.md                 # Detailed design decisions
-├── docker-compose.yml        # Dify + dependencies
-├── railway.toml              # Railway deployment config
+├── tools_api.py              # FastAPI endpoints + smart router
 ├── dify/
-│   ├── tools/                # Custom tool definitions
-│   │   ├── search_company.py
-│   │   ├── get_filings.py
-│   │   ├── fetch_filing.py
-│   │   ├── query_filings.py
-│   │   └── compare_periods.py
-│   └── workflows/            # Exported Dify workflows
-│       ├── basic_qa.json
-│       └── investment_analysis.json
+│   └── tools/
+│       ├── search_company.py # Company lookup
+│       ├── get_filings.py    # Filing list
+│       ├── fetch_filing.py   # Parse + regex extraction
+│       └── vector_store.py   # Qdrant RAG (index, search, compare)
 ├── parsers/
-│   ├── html_parser.py        # SEC HTML filing parser
-│   ├── xbrl_parser.py        # XBRL structured data
-│   └── table_extractor.py    # Investment table extraction
-├── tests/
-│   ├── test_sec_api.py
-│   └── test_parsers.py
-└── scripts/
-    ├── index_company.py      # Batch index a company's filings
-    └── backfill.py           # Historical data loading
+│   └── ...                   # HTML/XBRL parsing
+├── requirements.txt
+├── Dockerfile
+├── railway.toml
+└── .env.example
 ```
-
-## 🧪 Example Queries
-
-Once deployed, users can ask:
-
-1. **Basic lookup:**
-   > "What is BCRED's CIK number and when was their last 10-K filed?"
-
-2. **Investment analysis:**
-   > "Show me the top 10 investments in Blue Owl's latest 10-Q by fair value"
-
-3. **Comparison:**
-   > "How did BCRED's PIK percentage change from Q2 to Q3 2025?"
-
-4. **Risk analysis:**
-   > "What percentage of ARCC's portfolio is in Level 3 assets?"
-
-5. **Cross-company:**
-   > "Compare the industry concentration between BCRED and ARCC"
-
-## 📈 Success Metrics
-
-- Query response time < 10 seconds
-- Accurate citation to source filings
-- Correct extraction of financial figures (validated against source)
-- Support for 50+ simultaneous users
 
 ## 🔜 Future Enhancements
 
-- Real-time filing alerts (new 8-K detection)
-- Integration with financial data APIs (for market data context)
-- Custom trained models for financial table extraction
-- Mobile app / Slack bot interface
-- GCP deployment option (see: Agent Ecosystem project)
+- [ ] 8-K real-time alerts (new filing detection)
+- [ ] Self-hosted Dify on home server
+- [ ] GCP Agent Ecosystem deployment
+- [ ] More filing types (proxy statements, 13F)
+- [ ] Excel export
 
----
-
-## License
+## 📄 License
 
 MIT
 
-## Contributing
+## 🙏 Credits
 
-PRs welcome! See CONTRIBUTING.md for guidelines.
+- [SEC EDGAR](https://www.sec.gov/edgar) — Free public API
+- [Dify](https://dify.ai) — LLM orchestration
+- [Qdrant](https://qdrant.tech) — Vector database
+- [The Menon Lab](https://blog.themenonlab.com) — Blog & research
