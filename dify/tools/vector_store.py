@@ -269,10 +269,10 @@ class SECVectorStore:
         if must_conditions:
             query_filter = models.Filter(must=must_conditions)
         
-        # Search
-        results = self.qdrant.search(
+        # Search using query_points (newer qdrant_client API)
+        results = self.qdrant.query_points(
             collection_name=COLLECTION_NAME,
-            query_vector=query_embedding,
+            query=query_embedding,
             query_filter=query_filter,
             limit=limit
         )
@@ -288,7 +288,7 @@ class SECVectorStore:
                 "section": hit.payload["section"],
                 "text": hit.payload["text"]
             }
-            for hit in results
+            for hit in results.points
         ]
     
     async def compare_filings(
@@ -325,9 +325,9 @@ class SECVectorStore:
         
         for topic in topics:
             # Search in filing 1
-            results_1 = self.qdrant.search(
+            results_1 = self.qdrant.query_points(
                 collection_name=COLLECTION_NAME,
-                query_vector=(await self.get_embeddings([topic]))[0],
+                query=(await self.get_embeddings([topic]))[0],
                 query_filter=models.Filter(
                     must=[
                         models.FieldCondition(key="cik", match=models.MatchValue(value=cik)),
@@ -338,9 +338,9 @@ class SECVectorStore:
             )
             
             # Search in filing 2
-            results_2 = self.qdrant.search(
+            results_2 = self.qdrant.query_points(
                 collection_name=COLLECTION_NAME,
-                query_vector=(await self.get_embeddings([topic]))[0],
+                query=(await self.get_embeddings([topic]))[0],
                 query_filter=models.Filter(
                     must=[
                         models.FieldCondition(key="cik", match=models.MatchValue(value=cik)),
@@ -353,11 +353,11 @@ class SECVectorStore:
             comparisons[topic] = {
                 "filing_1": [
                     {"section": r.payload["section"], "text": r.payload["text"][:500]}
-                    for r in results_1
+                    for r in results_1.points
                 ],
                 "filing_2": [
                     {"section": r.payload["section"], "text": r.payload["text"][:500]}
-                    for r in results_2
+                    for r in results_2.points
                 ]
             }
         
