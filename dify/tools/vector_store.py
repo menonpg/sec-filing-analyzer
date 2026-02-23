@@ -30,7 +30,7 @@ QDRANT_URL = os.environ.get(
     "https://0a09c02d-e7c9-4ebf-a951-1353dba676f0.us-east-1-1.aws.cloud.qdrant.io"
 )
 QDRANT_API_KEY = os.environ.get("QDRANT_API_KEY", "")
-COLLECTION_NAME = "sec_filings"
+COLLECTION_NAME = "sec_edgar_filings"  # Unique collection, won't conflict with job-bot
 
 # Chunking config
 CHUNK_SIZE = 1500  # characters per chunk
