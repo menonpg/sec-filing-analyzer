@@ -1,0 +1,88 @@
+# Simplified Dify for Railway
+# Uses Railway Postgres + Upstash Redis (external)
+# Only deploys API, Worker, Web
+
+version: '3.8'
+
+services:
+  api:
+    image: langgenius/dify-api:latest
+    restart: always
+    environment:
+      MODE: api
+      LOG_LEVEL: INFO
+      SECRET_KEY: ${SECRET_KEY}
+      
+      # Railway Postgres (from Railway variables)
+      DB_USERNAME: ${PGUSER}
+      DB_PASSWORD: ${PGPASSWORD}
+      DB_HOST: ${PGHOST}
+      DB_PORT: ${PGPORT}
+      DB_DATABASE: ${PGDATABASE}
+      
+      # Upstash Redis
+      REDIS_HOST: ${UPSTASH_REDIS_HOST}
+      REDIS_PORT: 6379
+      REDIS_PASSWORD: ${UPSTASH_REDIS_PASSWORD}
+      REDIS_USE_SSL: true
+      
+      # Qdrant Cloud
+      VECTOR_STORE: qdrant
+      QDRANT_URL: ${QDRANT_URL}
+      QDRANT_API_KEY: ${QDRANT_API_KEY}
+      
+      # Azure OpenAI
+      AZURE_OPENAI_API_KEY: ${AZURE_OPENAI_API_KEY}
+      AZURE_OPENAI_API_BASE: ${AZURE_OPENAI_ENDPOINT}
+      AZURE_OPENAI_API_VERSION: 2024-02-15-preview
+      
+      # URLs
+      CONSOLE_WEB_URL: ${RAILWAY_PUBLIC_DOMAIN}
+      SERVICE_API_URL: ${RAILWAY_PUBLIC_DOMAIN}
+      APP_WEB_URL: ${RAILWAY_PUBLIC_DOMAIN}
+      
+      STORAGE_TYPE: local
+      STORAGE_LOCAL_PATH: /app/api/storage
+    volumes:
+      - api_storage:/app/api/storage
+    ports:
+      - "5001:5001"
+
+  worker:
+    image: langgenius/dify-api:latest
+    restart: always
+    environment:
+      MODE: worker
+      LOG_LEVEL: INFO
+      SECRET_KEY: ${SECRET_KEY}
+      DB_USERNAME: ${PGUSER}
+      DB_PASSWORD: ${PGPASSWORD}
+      DB_HOST: ${PGHOST}
+      DB_PORT: ${PGPORT}
+      DB_DATABASE: ${PGDATABASE}
+      REDIS_HOST: ${UPSTASH_REDIS_HOST}
+      REDIS_PORT: 6379
+      REDIS_PASSWORD: ${UPSTASH_REDIS_PASSWORD}
+      REDIS_USE_SSL: true
+      VECTOR_STORE: qdrant
+      QDRANT_URL: ${QDRANT_URL}
+      QDRANT_API_KEY: ${QDRANT_API_KEY}
+      AZURE_OPENAI_API_KEY: ${AZURE_OPENAI_API_KEY}
+      AZURE_OPENAI_API_BASE: ${AZURE_OPENAI_ENDPOINT}
+      AZURE_OPENAI_API_VERSION: 2024-02-15-preview
+      STORAGE_TYPE: local
+      STORAGE_LOCAL_PATH: /app/api/storage
+    volumes:
+      - api_storage:/app/api/storage
+
+  web:
+    image: langgenius/dify-web:latest
+    restart: always
+    environment:
+      CONSOLE_API_URL: ${RAILWAY_PUBLIC_DOMAIN}
+      APP_API_URL: ${RAILWAY_PUBLIC_DOMAIN}
+    ports:
+      - "3000:3000"
+
+volumes:
+  api_storage:
