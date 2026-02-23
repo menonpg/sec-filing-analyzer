@@ -49,6 +49,7 @@ class FetchFilingRequest(BaseModel):
     cik: str
     accession_number: str
     primary_document: Optional[str] = None
+    summary_only: bool = False  # Return only key metrics (for comparisons)
 
 
 # Health Check
@@ -93,11 +94,13 @@ async def api_fetch_filing(request: FetchFilingRequest):
     """
     Fetch and parse an SEC filing document.
     Returns sections, tables, and full text.
+    Use summary_only=true for comparisons (returns key metrics only).
     """
     result = await fetch_filing(
         cik=request.cik,
         accession_number=request.accession_number,
-        primary_document=request.primary_document
+        primary_document=request.primary_document,
+        summary_only=request.summary_only
     )
     if "error" in result:
         raise HTTPException(status_code=404, detail=result["error"])
@@ -207,9 +210,10 @@ async def openapi_tools():
                                 "schema": {
                                     "type": "object",
                                     "properties": {
-                                        "cik": {"type": "string"},
-                                        "accession_number": {"type": "string"},
-                                        "primary_document": {"type": "string"}
+                                        "cik": {"type": "string", "description": "Company CIK"},
+                                        "accession_number": {"type": "string", "description": "Filing accession number"},
+                                        "primary_document": {"type": "string", "description": "Document filename (optional)"},
+                                        "summary_only": {"type": "boolean", "description": "If true, return only key metrics (revenue, income, EPS, segments) - use this for comparisons", "default": False}
                                     },
                                     "required": ["cik", "accession_number"]
                                 }
@@ -217,7 +221,7 @@ async def openapi_tools():
                         }
                     },
                     "responses": {
-                        "200": {"description": "Parsed filing with sections and tables"}
+                        "200": {"description": "Parsed filing with sections and tables (or key_metrics if summary_only=true)"}
                     }
                 }
             }

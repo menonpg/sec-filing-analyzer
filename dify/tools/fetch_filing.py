@@ -28,7 +28,8 @@ class FilingSection:
 async def fetch_filing(
     cik: str,
     accession_number: str,
-    primary_document: Optional[str] = None
+    primary_document: Optional[str] = None,
+    summary_only: bool = False
 ) -> dict:
     """
     Fetch and parse an SEC filing.
@@ -85,6 +86,19 @@ async def fetch_filing(
         
         # Parse the filing
         parsed = parse_filing_html(html_content)
+        
+        # If summary_only, extract key metrics and return compact response
+        if summary_only:
+            key_metrics = extract_key_metrics(parsed.get("full_text", ""))
+            return {
+                "cik": cik_clean,
+                "accession_number": accession_number,
+                "url": filing_url,
+                "title": parsed.get("title"),
+                "key_metrics": key_metrics,
+                "sections_found": [s["name"] for s in parsed.get("sections", [])],
+                "table_count": len(parsed.get("tables", [])),
+            }
         
         return {
             "cik": cik_clean,
@@ -242,6 +256,87 @@ def extract_tables(soup: BeautifulSoup) -> List[dict]:
             })
     
     return tables
+
+
+def extract_key_metrics(full_text: str) -> dict:
+    """
+    Extract key financial metrics from filing text using regex patterns.
+    Returns a compact summary suitable for LLM comparison.
+    """
+    metrics = {}
+    text_lower = full_text.lower()
+    
+    # Revenue patterns
+    revenue_patterns = [
+        r'(?:total\s+)?(?:net\s+)?(?:sales|revenue)[:\s]+\$?([\d,]+(?:\.\d+)?)\s*(?:billion|million|B|M)?',
+        r'(?:net\s+)?sales\s+(?:were|was|of)\s+\$?([\d,]+(?:\.\d+)?)\s*(?:billion|million)?',
+    ]
+    for pattern in revenue_patterns:
+        match = re.search(pattern, full_text, re.IGNORECASE)
+        if match:
+            metrics['revenue'] = match.group(0)[:100]
+            break
+    
+    # Net income
+    income_patterns = [
+        r'net\s+income[:\s]+\$?([\d,]+(?:\.\d+)?)\s*(?:billion|million)?',
+        r'net\s+income\s+(?:was|were|of)\s+\$?([\d,]+(?:\.\d+)?)',
+    ]
+    for pattern in income_patterns:
+        match = re.search(pattern, full_text, re.IGNORECASE)
+        if match:
+            metrics['net_income'] = match.group(0)[:100]
+            break
+    
+    # EPS
+    eps_patterns = [
+        r'(?:diluted\s+)?(?:earnings|EPS)\s+per\s+share[:\s]+\$?([\d.]+)',
+        r'diluted\s+EPS[:\s]+\$?([\d.]+)',
+    ]
+    for pattern in eps_patterns:
+        match = re.search(pattern, full_text, re.IGNORECASE)
+        if match:
+            metrics['eps'] = match.group(0)[:80]
+            break
+    
+    # Gross margin
+    margin_match = re.search(r'gross\s+margin[:\s]+([\d.]+)\s*%?', full_text, re.IGNORECASE)
+    if margin_match:
+        metrics['gross_margin'] = margin_match.group(0)[:60]
+    
+    # Operating cash flow
+    cash_flow_match = re.search(r'operating\s+cash\s+flow[:\s]+\$?([\d,]+(?:\.\d+)?)', full_text, re.IGNORECASE)
+    if cash_flow_match:
+        metrics['operating_cash_flow'] = cash_flow_match.group(0)[:80]
+    
+    # Segment data - look for product lines
+    segments = {}
+    segment_patterns = [
+        (r'iPhone[:\s]+\$?([\d,]+(?:\.\d+)?)\s*(?:billion|million)?', 'iPhone'),
+        (r'Mac[:\s]+\$?([\d,]+(?:\.\d+)?)\s*(?:billion|million)?', 'Mac'),
+        (r'iPad[:\s]+\$?([\d,]+(?:\.\d+)?)\s*(?:billion|million)?', 'iPad'),
+        (r'Services[:\s]+\$?([\d,]+(?:\.\d+)?)\s*(?:billion|million)?', 'Services'),
+        (r'Wearables[,\s]+Home[:\s]+\$?([\d,]+(?:\.\d+)?)', 'Wearables'),
+    ]
+    for pattern, segment_name in segment_patterns:
+        match = re.search(pattern, full_text, re.IGNORECASE)
+        if match:
+            segments[segment_name] = match.group(0)[:60]
+    
+    if segments:
+        metrics['segments'] = segments
+    
+    # Share repurchases
+    buyback_match = re.search(r'(?:repurchased|buyback)[:\s]+\$?([\d,]+(?:\.\d+)?)\s*(?:billion|million)?', full_text, re.IGNORECASE)
+    if buyback_match:
+        metrics['share_repurchases'] = buyback_match.group(0)[:80]
+    
+    # Quarter/period
+    period_match = re.search(r'(?:quarter|period)\s+ended\s+(\w+\s+\d+,?\s+\d{4})', full_text, re.IGNORECASE)
+    if period_match:
+        metrics['period'] = period_match.group(1)
+    
+    return metrics
 
 
 def find_investment_schedule(tables: List[dict]) -> Optional[dict]:
