@@ -371,11 +371,12 @@ class SECVectorStore:
     def get_stats(self) -> dict:
         """Get collection statistics."""
         info = self.qdrant.get_collection(COLLECTION_NAME)
+        # Handle different qdrant_client versions
+        points = getattr(info, 'points_count', None) or getattr(info, 'vectors_count', 0)
         return {
             "collection": COLLECTION_NAME,
-            "vectors_count": info.vectors_count,
-            "points_count": info.points_count,
-            "status": info.status
+            "points_count": points,
+            "status": str(info.status) if info.status else "unknown"
         }
     
     def is_indexed(self, cik: str, accession_number: str) -> bool:
