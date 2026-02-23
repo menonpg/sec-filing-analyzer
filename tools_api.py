@@ -15,6 +15,7 @@ import uvicorn
 from dify.tools.search_company import search_company
 from dify.tools.get_filings import get_filings, get_latest_filing
 from dify.tools.fetch_filing import fetch_filing
+from dify.tools.vector_store import get_vector_store
 
 app = FastAPI(
     title="SEC Filing Analyzer API",
@@ -50,6 +51,29 @@ class FetchFilingRequest(BaseModel):
     accession_number: str
     primary_document: Optional[str] = None
     summary_only: bool = False  # Return only key metrics (for comparisons)
+    index: bool = False  # Also index into vector store
+
+
+class IndexFilingRequest(BaseModel):
+    cik: str
+    accession_number: str
+    form_type: str = "10-Q"
+    filing_date: str = ""
+    company_name: str = ""
+
+
+class SemanticSearchRequest(BaseModel):
+    query: str
+    cik: Optional[str] = None
+    form_type: Optional[str] = None
+    limit: int = 10
+
+
+class CompareFilingsRequest(BaseModel):
+    cik: str
+    accession_1: str
+    accession_2: str
+    topics: Optional[List[str]] = None
 
 
 # Health Check
@@ -116,6 +140,95 @@ async def api_latest_filing(cik: str, form_type: str = "10-Q"):
     if not result:
         raise HTTPException(status_code=404, detail=f"No {form_type} found for CIK {cik}")
     return result
+
+
+# ============ RAG ENDPOINTS ============
+
+@app.post("/tools/index_filing")
+async def api_index_filing(request: IndexFilingRequest):
+    """
+    Index a filing into the vector store for semantic search.
+    Fetches the filing, chunks it, and stores embeddings in Qdrant.
+    """
+    # First fetch the filing
+    filing = await fetch_filing(
+        cik=request.cik,
+        accession_number=request.accession_number
+    )
+    
+    if "error" in filing:
+        raise HTTPException(status_code=404, detail=filing["error"])
+    
+    # Parse sections from the filing
+    sections = {}
+    full_text = filing.get("full_text", "")
+    
+    # Try to extract sections if available
+    if filing.get("sections"):
+        # For now, use full text chunked by detected sections
+        # In production, would extract actual section content
+        sections["full_document"] = full_text
+    else:
+        sections["full_document"] = full_text
+    
+    # Index into vector store
+    store = get_vector_store()
+    result = await store.index_filing(
+        cik=request.cik,
+        accession_number=request.accession_number,
+        form_type=request.form_type,
+        filing_date=request.filing_date or filing.get("filing_date", ""),
+        company_name=request.company_name,
+        sections=sections
+    )
+    
+    return result
+
+
+@app.post("/tools/semantic_search")
+async def api_semantic_search(request: SemanticSearchRequest):
+    """
+    Semantic search across indexed SEC filings.
+    Use this to find relevant content about a topic across filings.
+    """
+    store = get_vector_store()
+    results = await store.search(
+        query=request.query,
+        cik=request.cik,
+        form_type=request.form_type,
+        limit=request.limit
+    )
+    
+    return {
+        "query": request.query,
+        "results": results,
+        "count": len(results)
+    }
+
+
+@app.post("/tools/compare_filings")
+async def api_compare_filings(request: CompareFilingsRequest):
+    """
+    Compare two indexed filings by topic.
+    Retrieves relevant chunks from each filing for side-by-side comparison.
+    Both filings must be indexed first using index_filing.
+    """
+    store = get_vector_store()
+    result = await store.compare_filings(
+        cik=request.cik,
+        accession_1=request.accession_1,
+        accession_2=request.accession_2,
+        topics=request.topics
+    )
+    
+    return result
+
+
+@app.get("/tools/vector_stats")
+async def api_vector_stats():
+    """Get statistics about the vector store (indexed filings count, etc.)."""
+    store = get_vector_store()
+    return store.get_stats()
 
 
 # Quick test endpoints
@@ -222,6 +335,85 @@ async def openapi_tools():
                     },
                     "responses": {
                         "200": {"description": "Parsed filing with sections and tables (or key_metrics if summary_only=true)"}
+                    }
+                }
+            },
+            "/tools/index_filing": {
+                "post": {
+                    "operationId": "indexFiling",
+                    "summary": "Index a filing into vector store for semantic search",
+                    "description": "Fetches, chunks, and indexes a filing into Qdrant. Required before using semantic_search or compare_filings.",
+                    "requestBody": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "cik": {"type": "string", "description": "Company CIK"},
+                                        "accession_number": {"type": "string", "description": "Filing accession number"},
+                                        "form_type": {"type": "string", "description": "Form type (10-Q, 10-K, 8-K)", "default": "10-Q"},
+                                        "filing_date": {"type": "string", "description": "Filing date"},
+                                        "company_name": {"type": "string", "description": "Company name"}
+                                    },
+                                    "required": ["cik", "accession_number"]
+                                }
+                            }
+                        }
+                    },
+                    "responses": {
+                        "200": {"description": "Indexing results with chunk count"}
+                    }
+                }
+            },
+            "/tools/semantic_search": {
+                "post": {
+                    "operationId": "semanticSearch",
+                    "summary": "Search indexed filings by topic/question",
+                    "description": "Semantic search across all indexed SEC filings. Returns relevant text chunks. Use after indexing filings.",
+                    "requestBody": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "query": {"type": "string", "description": "Search query (e.g., 'revenue growth', 'risk factors', 'cash flow')"},
+                                        "cik": {"type": "string", "description": "Filter by company CIK (optional)"},
+                                        "form_type": {"type": "string", "description": "Filter by form type (optional)"},
+                                        "limit": {"type": "integer", "description": "Max results", "default": 10}
+                                    },
+                                    "required": ["query"]
+                                }
+                            }
+                        }
+                    },
+                    "responses": {
+                        "200": {"description": "Matching text chunks with relevance scores"}
+                    }
+                }
+            },
+            "/tools/compare_filings": {
+                "post": {
+                    "operationId": "compareFilings",
+                    "summary": "Compare two indexed filings side-by-side",
+                    "description": "Retrieves relevant content from two filings for comparison. Both filings must be indexed first.",
+                    "requestBody": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "cik": {"type": "string", "description": "Company CIK"},
+                                        "accession_1": {"type": "string", "description": "First filing accession number"},
+                                        "accession_2": {"type": "string", "description": "Second filing accession number"},
+                                        "topics": {"type": "array", "items": {"type": "string"}, "description": "Topics to compare (e.g., ['revenue', 'risk factors']). Defaults to common financial topics."}
+                                    },
+                                    "required": ["cik", "accession_1", "accession_2"]
+                                }
+                            }
+                        }
+                    },
+                    "responses": {
+                        "200": {"description": "Side-by-side comparison of filing content by topic"}
                     }
                 }
             }
