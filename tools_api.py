@@ -65,6 +65,7 @@ class IndexFilingRequest(BaseModel):
 class SemanticSearchRequest(BaseModel):
     query: str
     cik: Optional[str] = None
+    accession_number: Optional[str] = None  # Scope to specific filing
     form_type: Optional[str] = None
     limit: int = 10
 
@@ -197,17 +198,24 @@ async def api_semantic_search(request: SemanticSearchRequest):
     """
     Semantic search across indexed SEC filings.
     Use this to find relevant content about a topic across filings.
+    Pass accession_number to scope to a specific filing.
     """
     store = get_vector_store()
     results = await store.search(
         query=request.query,
         cik=request.cik,
+        accession_number=request.accession_number,
         form_type=request.form_type,
         limit=request.limit
     )
     
     return {
         "query": request.query,
+        "filters": {
+            "cik": request.cik,
+            "accession_number": request.accession_number,
+            "form_type": request.form_type
+        },
         "results": results,
         "count": len(results)
     }
@@ -353,8 +361,13 @@ async def smart_analyze(request: SmartAnalyzeRequest):
         else:
             result["indexed"] = "already_indexed"
         
-        # Semantic search
-        search_results = await store.search(query, cik=cik, limit=5)
+        # Semantic search - SCOPED TO THIS SPECIFIC FILING
+        search_results = await store.search(
+            query, 
+            cik=cik, 
+            accession_number=accession,  # Scope to this filing only
+            limit=5
+        )
         result["relevant_context"] = search_results
         result["analysis_type"] = "rag_semantic_search"
     
@@ -499,7 +512,7 @@ async def openapi_tools():
                 "post": {
                     "operationId": "semanticSearch",
                     "summary": "Search indexed filings by topic/question",
-                    "description": "Semantic search across all indexed SEC filings. Returns relevant text chunks. Use after indexing filings.",
+                    "description": "Semantic search across indexed SEC filings. Pass accession_number to scope to ONE filing (recommended). Without it, searches across ALL indexed filings for that company.",
                     "requestBody": {
                         "content": {
                             "application/json": {
@@ -507,7 +520,8 @@ async def openapi_tools():
                                     "type": "object",
                                     "properties": {
                                         "query": {"type": "string", "description": "Search query (e.g., 'revenue growth', 'risk factors', 'cash flow')"},
-                                        "cik": {"type": "string", "description": "Filter by company CIK (optional)"},
+                                        "cik": {"type": "string", "description": "Filter by company CIK"},
+                                        "accession_number": {"type": "string", "description": "Filter by specific filing accession number (recommended for precision)"},
                                         "form_type": {"type": "string", "description": "Filter by form type (optional)"},
                                         "limit": {"type": "integer", "description": "Max results", "default": 10}
                                     },

@@ -221,6 +221,7 @@ class SECVectorStore:
         self,
         query: str,
         cik: Optional[str] = None,
+        accession_number: Optional[str] = None,
         form_type: Optional[str] = None,
         limit: int = 10
     ) -> List[dict]:
@@ -230,6 +231,7 @@ class SECVectorStore:
         Args:
             query: Search query
             cik: Filter by company CIK
+            accession_number: Filter by specific filing (recommended for precision)
             form_type: Filter by form type (10-Q, 10-K, etc.)
             limit: Max results
         
@@ -246,6 +248,13 @@ class SECVectorStore:
                 models.FieldCondition(
                     key="cik",
                     match=models.MatchValue(value=cik)
+                )
+            )
+        if accession_number:
+            must_conditions.append(
+                models.FieldCondition(
+                    key="accession_number",
+                    match=models.MatchValue(value=accession_number)
                 )
             )
         if form_type:
@@ -272,6 +281,7 @@ class SECVectorStore:
             {
                 "score": hit.score,
                 "cik": hit.payload["cik"],
+                "accession_number": hit.payload["accession_number"],
                 "company_name": hit.payload["company_name"],
                 "form_type": hit.payload["form_type"],
                 "filing_date": hit.payload["filing_date"],
