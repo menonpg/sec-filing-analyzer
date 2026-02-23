@@ -58,6 +58,61 @@ Ask natural language questions about any company's SEC filings:
 
 The smart router analyzes your query and picks the right mode automatically.
 
+## 📊 Real Example: MD&A Segment Comparison
+
+**Query:** "Compare the MD&A sections for segment performance of Ingram Micro over the last two quarters"
+
+### Agent Trace
+
+```
+1. searchCompany("Ingram Micro")
+   → CIK: 1897762, Company: Ingram Micro Holding Corp
+
+2. getFilings(cik="1897762", form_types=["10-Q"], limit=2)
+   → Q3 2025: accession 0001628280-25-047537 (Sep 27, 2025)
+   → Q2 2025: accession 0001628280-25-038373 (Jun 28, 2025)
+
+3. indexFiling(cik="1897762", accession="0001628280-25-047537")
+   → Indexed 45 chunks into Qdrant
+
+4. indexFiling(cik="1897762", accession="0001628280-25-038373")  
+   → Indexed 45 chunks into Qdrant
+
+5. compareFilings(cik="1897762", accession_1="...", accession_2="...")
+   → Semantic search for "segment performance" in both filings
+   → Returns relevant MD&A chunks for comparison
+```
+
+### Result
+
+| Segment | Q2 2025 | Q3 2025 | Change |
+|---------|---------|---------|--------|
+| Technology Solutions | +3% (storage/networking) | +6% (AI servers/networking) | ↑ AI-driven growth |
+| Global Cloud | +5% (SMB subscriptions) | +8% (enterprise adoption) | ↑ Accelerated |
+| Mobility | +2% (seasonal refresh) | -1% (demand decline) | ↓ Shift to decline |
+
+**Key insight:** Q3 saw stronger growth in Tech Solutions and Cloud driven by AI hardware demand, but Mobility underperformed.
+
+## 📈 Observability with Langfuse
+
+The Dify agent is integrated with [Langfuse](https://langfuse.com) for LLM observability:
+
+- **Trace visualization** — See the full agent reasoning chain
+- **Token usage** — Track costs per query
+- **Latency breakdown** — Identify slow tool calls
+- **Prompt debugging** — Inspect inputs/outputs at each step
+
+### Setup in Dify
+
+1. Go to **Settings → Monitoring → Langfuse**
+2. Add your Langfuse credentials:
+   ```
+   LANGFUSE_PUBLIC_KEY=pk-...
+   LANGFUSE_SECRET_KEY=sk-...
+   LANGFUSE_HOST=https://cloud.langfuse.com
+   ```
+3. All agent traces are now visible in Langfuse dashboard
+
 ## 🔧 API Endpoints
 
 ### Smart Router (Recommended)
