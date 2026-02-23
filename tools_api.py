@@ -200,25 +200,29 @@ async def api_semantic_search(request: SemanticSearchRequest):
     Use this to find relevant content about a topic across filings.
     Pass accession_number to scope to a specific filing.
     """
-    store = get_vector_store()
-    results = await store.search(
-        query=request.query,
-        cik=request.cik,
-        accession_number=request.accession_number,
-        form_type=request.form_type,
-        limit=request.limit
-    )
-    
-    return {
-        "query": request.query,
-        "filters": {
-            "cik": request.cik,
-            "accession_number": request.accession_number,
-            "form_type": request.form_type
-        },
-        "results": results,
-        "count": len(results)
-    }
+    try:
+        store = get_vector_store()
+        results = await store.search(
+            query=request.query,
+            cik=request.cik,
+            accession_number=request.accession_number,
+            form_type=request.form_type,
+            limit=request.limit
+        )
+        
+        return {
+            "query": request.query,
+            "filters": {
+                "cik": request.cik,
+                "accession_number": request.accession_number,
+                "form_type": request.form_type
+            },
+            "results": results,
+            "count": len(results)
+        }
+    except Exception as e:
+        import traceback
+        return {"error": str(e), "traceback": traceback.format_exc()}
 
 
 @app.post("/tools/compare_filings")
@@ -242,8 +246,12 @@ async def api_compare_filings(request: CompareFilingsRequest):
 @app.get("/tools/vector_stats")
 async def api_vector_stats():
     """Get statistics about the vector store (indexed filings count, etc.)."""
-    store = get_vector_store()
-    return store.get_stats()
+    try:
+        store = get_vector_store()
+        return store.get_stats()
+    except Exception as e:
+        import traceback
+        return {"error": str(e), "traceback": traceback.format_exc()}
 
 
 @app.get("/tools/indexed_filings")
