@@ -76,6 +76,13 @@ class CompareFilingsRequest(BaseModel):
     topics: Optional[List[str]] = None
 
 
+class SmartAnalyzeRequest(BaseModel):
+    """Smart router that picks regex or RAG based on query type."""
+    query: str
+    company: str  # Company name or ticker
+    form_type: str = "10-Q"  # Default to quarterly
+
+
 # Health Check
 @app.get("/health")
 async def health():
@@ -229,6 +236,129 @@ async def api_vector_stats():
     """Get statistics about the vector store (indexed filings count, etc.)."""
     store = get_vector_store()
     return store.get_stats()
+
+
+@app.get("/tools/indexed_filings")
+async def api_list_indexed(cik: Optional[str] = None):
+    """List all indexed filings in the vector store."""
+    store = get_vector_store()
+    return {"filings": store.list_indexed_filings(cik)}
+
+
+# ============ SMART ROUTER ============
+
+# Keywords that indicate structured data (use Regex mode)
+METRIC_KEYWORDS = [
+    'revenue', 'sales', 'income', 'eps', 'earnings', 'margin', 'profit',
+    'cash flow', 'ebitda', 'assets', 'liabilities', 'debt', 'equity',
+    'dividend', 'buyback', 'repurchase', 'shares outstanding',
+    'how much', 'what was', 'total', 'net'
+]
+
+# Keywords that indicate narrative content (use RAG mode)
+NARRATIVE_KEYWORDS = [
+    'risk', 'factor', 'guidance', 'outlook', 'strategy', 'competition',
+    'regulation', 'legal', 'lawsuit', 'investigation', 'supply chain',
+    'compare', 'change', 'different', 'versus', 'vs', 'trend',
+    'why', 'how did', 'explain', 'describe', 'summary of', 'overview'
+]
+
+
+def classify_query(query: str) -> str:
+    """Classify query as 'metrics' or 'narrative'."""
+    query_lower = query.lower()
+    
+    metric_score = sum(1 for kw in METRIC_KEYWORDS if kw in query_lower)
+    narrative_score = sum(1 for kw in NARRATIVE_KEYWORDS if kw in query_lower)
+    
+    # Comparison keywords strongly favor RAG
+    if any(word in query_lower for word in ['compare', 'versus', 'vs', 'change', 'different']):
+        return 'narrative'
+    
+    if metric_score > narrative_score:
+        return 'metrics'
+    elif narrative_score > metric_score:
+        return 'narrative'
+    else:
+        # Default to metrics (faster)
+        return 'metrics'
+
+
+@app.post("/tools/analyze")
+async def smart_analyze(request: SmartAnalyzeRequest):
+    """
+    Smart SEC filing analyzer - automatically routes to Regex or RAG mode.
+    
+    - Metrics questions (revenue, EPS, margins) → Fast regex extraction
+    - Narrative questions (risks, guidance, comparisons) → RAG semantic search
+    
+    Just ask your question - this endpoint figures out the best approach.
+    """
+    query = request.query
+    mode = classify_query(query)
+    
+    # Step 1: Find the company
+    company_result = await search_company(request.company)
+    if "error" in company_result:
+        return {"error": f"Company not found: {request.company}", "query": query}
+    
+    cik = company_result["cik"]
+    company_name = company_result.get("name", request.company)
+    
+    # Step 2: Get latest filing of requested type
+    filings_result = await get_filings(cik, form_types=[request.form_type], limit=1)
+    if "error" in filings_result or not filings_result.get("filings"):
+        return {"error": f"No {request.form_type} found for {company_name}", "query": query}
+    
+    latest_filing = filings_result["filings"][0]
+    accession = latest_filing["accessionNumber"]
+    filing_date = latest_filing.get("filingDate", "")
+    
+    result = {
+        "query": query,
+        "company": company_name,
+        "cik": cik,
+        "filing": {
+            "form_type": request.form_type,
+            "accession_number": accession,
+            "filing_date": filing_date
+        },
+        "mode": mode
+    }
+    
+    if mode == 'metrics':
+        # Fast path: Regex extraction
+        filing_data = await fetch_filing(cik, accession, summary_only=True)
+        result["key_metrics"] = filing_data.get("key_metrics", {})
+        result["analysis_type"] = "regex_extraction"
+        
+    else:
+        # RAG path: Index if needed, then search
+        store = get_vector_store()
+        
+        # Check if already indexed
+        if not store.is_indexed(cik, accession):
+            # Fetch and index the filing
+            filing_data = await fetch_filing(cik, accession)
+            if "error" not in filing_data:
+                await store.index_filing(
+                    cik=cik,
+                    accession_number=accession,
+                    form_type=request.form_type,
+                    filing_date=filing_date,
+                    company_name=company_name,
+                    sections={"full_document": filing_data.get("full_text", "")}
+                )
+                result["indexed"] = True
+        else:
+            result["indexed"] = "already_indexed"
+        
+        # Semantic search
+        search_results = await store.search(query, cik=cik, limit=5)
+        result["relevant_context"] = search_results
+        result["analysis_type"] = "rag_semantic_search"
+    
+    return result
 
 
 # Quick test endpoints
@@ -414,6 +544,31 @@ async def openapi_tools():
                     },
                     "responses": {
                         "200": {"description": "Side-by-side comparison of filing content by topic"}
+                    }
+                }
+            },
+            "/tools/analyze": {
+                "post": {
+                    "operationId": "analyze",
+                    "summary": "Smart SEC filing analyzer (auto-routes to best method)",
+                    "description": "Automatically picks Regex or RAG based on your question. For metrics (revenue, EPS) uses fast regex. For narrative (risks, guidance, comparisons) uses RAG semantic search. Just ask your question naturally.",
+                    "requestBody": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "query": {"type": "string", "description": "Your question about the company's SEC filing"},
+                                        "company": {"type": "string", "description": "Company name or ticker (e.g., 'Apple', 'AAPL')"},
+                                        "form_type": {"type": "string", "description": "Filing type (10-Q, 10-K, 8-K)", "default": "10-Q"}
+                                    },
+                                    "required": ["query", "company"]
+                                }
+                            }
+                        }
+                    },
+                    "responses": {
+                        "200": {"description": "Analysis results with key_metrics (regex mode) or relevant_context (RAG mode)"}
                     }
                 }
             }

@@ -367,6 +367,67 @@ class SECVectorStore:
             "points_count": info.points_count,
             "status": info.status
         }
+    
+    def is_indexed(self, cik: str, accession_number: str) -> bool:
+        """Check if a filing is already indexed."""
+        results = self.qdrant.scroll(
+            collection_name=COLLECTION_NAME,
+            scroll_filter=models.Filter(
+                must=[
+                    models.FieldCondition(key="cik", match=models.MatchValue(value=cik)),
+                    models.FieldCondition(key="accession_number", match=models.MatchValue(value=accession_number))
+                ]
+            ),
+            limit=1
+        )
+        return len(results[0]) > 0
+    
+    def list_indexed_filings(self, cik: Optional[str] = None) -> List[dict]:
+        """List all indexed filings, optionally filtered by CIK."""
+        scroll_filter = None
+        if cik:
+            scroll_filter = models.Filter(
+                must=[models.FieldCondition(key="cik", match=models.MatchValue(value=cik))]
+            )
+        
+        # Get unique filings by scrolling and deduplicating
+        results, _ = self.qdrant.scroll(
+            collection_name=COLLECTION_NAME,
+            scroll_filter=scroll_filter,
+            limit=1000,
+            with_payload=True
+        )
+        
+        seen = set()
+        filings = []
+        for point in results:
+            key = f"{point.payload['cik']}:{point.payload['accession_number']}"
+            if key not in seen:
+                seen.add(key)
+                filings.append({
+                    "cik": point.payload["cik"],
+                    "accession_number": point.payload["accession_number"],
+                    "company_name": point.payload.get("company_name", ""),
+                    "form_type": point.payload.get("form_type", ""),
+                    "filing_date": point.payload.get("filing_date", "")
+                })
+        
+        return filings
+    
+    def delete_filing(self, cik: str, accession_number: str) -> dict:
+        """Delete a filing from the index."""
+        self.qdrant.delete(
+            collection_name=COLLECTION_NAME,
+            points_selector=models.FilterSelector(
+                filter=models.Filter(
+                    must=[
+                        models.FieldCondition(key="cik", match=models.MatchValue(value=cik)),
+                        models.FieldCondition(key="accession_number", match=models.MatchValue(value=accession_number))
+                    ]
+                )
+            )
+        )
+        return {"status": "deleted", "cik": cik, "accession_number": accession_number}
 
 
 # Singleton instance
